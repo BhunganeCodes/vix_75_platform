@@ -40,6 +40,7 @@ from vix_core.schemas import (
     Zone,
     ZoneKind,
     ZoneState,
+    uuid_from_hex,
 )
 from vix_core.scoring import ConfluenceResult, calculate_score
 
@@ -81,6 +82,7 @@ __all__ = [
     "save_artifact",
     "stream_fields",
     "unbind_correlation_id",
+    "uuid_from_hex",
     "validate_stop_distances",
     "verify_artifact",
 ]

@@ -170,6 +170,24 @@ class OrderResult(StrictModel):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def uuid_from_hex(signal_id: str) -> str:
+    """Convert a 32-char hex id to the dashed UUID form Postgres requires.
+
+    Signal ids are generated as ``uuid4().hex`` (32 hex chars, no dashes);
+    the ``signals.id`` / ``signals.trades.signal_id`` columns are native
+    ``uuid`` types.
+    """
+    h = signal_id.replace("-", "")
+    if len(h) != 32 or any(c not in "0123456789abcdefABCDEF" for c in h):
+        raise ValueError(f"signal id must be 32 hex chars: {signal_id!r}")
+    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+
+
+# ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
 

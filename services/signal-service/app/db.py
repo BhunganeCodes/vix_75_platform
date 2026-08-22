@@ -9,7 +9,7 @@ from typing import Any, cast
 import psycopg
 from psycopg.types.json import Jsonb
 from vix_core.logging import get_logger
-from vix_core.schemas import Signal, Zone
+from vix_core.schemas import Signal, Zone, uuid_from_hex
 
 from .engine import LtfSnapshot
 
@@ -41,14 +41,6 @@ WHERE (%s::text IS NULL OR symbol = %s)
 ORDER BY created_ts DESC
 LIMIT %s
 """
-
-
-def _uuid_from_hex(signal_id: str) -> str:
-    """Signal ids are 32-char hex; Postgres uuid needs the dashed form."""
-    h = signal_id.replace("-", "")
-    if len(h) != 32:
-        raise ValueError(f"signal id must be 32 hex chars: {signal_id!r}")
-    return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
 
 
 def _row_to_snapshot(symbol: str, timeframe: str, row: tuple[Any, ...]) -> LtfSnapshot | None:
@@ -147,7 +139,7 @@ class SignalDatabase:
             await cur.execute(
                 _INSERT_SIGNAL_SQL,
                 (
-                    _uuid_from_hex(signal.id),
+                    uuid_from_hex(signal.id),
                     signal.created_ts,
                     signal.symbol,
                     signal.ltf_timeframe,

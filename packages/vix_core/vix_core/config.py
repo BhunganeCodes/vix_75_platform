@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     max_total_risk_pct: float = 3.0  # summed open risk, % of balance
     margin_usage_cap: float = 0.5  # required margin <= cap * free margin
 
+    # ---- Execution (execution-service) -------------------------------------
+    mt5_magic: int = 750101  # legacy EA magic; identifies our orders
+    reconcile_interval_seconds: float = 30.0
+
+    # ---- Notifications (notify-service) ------------------------------------
+    alert_rejections: bool = False  # muted by default per spec
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

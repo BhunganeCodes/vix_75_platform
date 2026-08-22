@@ -1,28 +1,27 @@
-"""notify-service skeleton: Telegram alerts + lifecycle logging.
-
-The Telegram token is a SecretStr from Settings and is never logged
-(redaction also guards against accidental key=value leaks).
-"""
+"""notify-service entry point: FastAPI app + lifecycle/alert consumer."""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+import redis.asyncio as aioredis
+from fastapi import FastAPI
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
 
+if sys.platform == "win32":  # pragma: no cover - psycopg3 async requirement
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from .consumer import NotifyConsumer
+from .lifecycle import LifecycleLogger
+from .telegram import TelegramSender
+
 logger = get_logger(__name__)
-
-TELEGRAM_API = "https://api.telegram.org"
-
-
-class NotifyRequest(BaseModel):
-    event: str  # e.g. "signal.proposed", "order.filled"
-    message: str
 
 
 @asynccontextmanager
@@ -31,46 +30,51 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(
         settings.service_name, level=settings.log_level, json_output=settings.log_json
     )
+
+    lifecycle = LifecycleLogger(settings.database_url)
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+    sender = TelegramSender(
+        settings, httpx.AsyncClient(base_url="https://api.telegram.org", timeout=10.0)
+    )
+
+    try:
+        await lifecycle.connect()
+        await redis_client.ping()
+        logger.info(
+            "notify-service dependencies ready",
+            telegram_configured=sender.configured,
+            alert_rejections=settings.alert_rejections,
+        )
+    except Exception:
+        logger.exception("dependency startup failed")
+
+    consumer = NotifyConsumer(settings, redis_client, lifecycle, sender)
+    task = asyncio.create_task(consumer.run_forever())
+
     app.state.settings = settings
-    app.state.http = httpx.AsyncClient(base_url=TELEGRAM_API, timeout=10.0)
+    app.state.lifecycle = lifecycle
+    app.state.consumer = consumer
+
     yield
-    await app.state.http.aclose()
+
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    await lifecycle.close()
+    await redis_client.aclose()
+    logger.info("notify-service stopped")
 
 
-app = FastAPI(title="vix75 notify-service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="vix75 notify-service", version="0.2.0", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health() -> dict[str, object]:
-    settings: Settings = app.state.settings
+async def health(request: object) -> dict[str, object]:
+    state = getattr(request, "app", None)
+    consumer = getattr(getattr(state, "state", None), "consumer", None)
     return {
         "service": "notify-service",
         "status": "ok",
-        "telegram_configured": bool(settings.telegram_token.get_secret_value().startswith("7")),
+        "events_processed": getattr(consumer, "processed", 0),
+        "alerts_sent": getattr(consumer, "alerts_sent", 0),
     }
-
-
-@app.post("/notify")
-async def notify(req: NotifyRequest) -> dict[str, object]:
-    settings: Settings = app.state.settings
-    token = settings.telegram_token.get_secret_value()
-    chat_id = settings.telegram_chat_id
-    if "..." in token or not chat_id.isdigit():
-        logger.info(
-            "telegram not configured; lifecycle log only",
-            notification_event=req.event,
-        )
-        return {"sent": False, "reason": "telegram_unconfigured"}
-
-    try:
-        response = await app.state.http.post(
-            f"/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": f"[VIX75] {req.event}\n{req.message}"},
-        )
-        response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.exception("telegram send failed", notification_event=req.event)
-        raise HTTPException(status_code=502, detail="telegram delivery failed") from exc
-
-    logger.info("notification sent", notification_event=req.event)
-    return {"sent": True}
