@@ -61,7 +61,8 @@ class NotifyConsumer:
         self._redis = redis
         self._lifecycle = lifecycle
         self._sender = sender or TelegramSender(
-            settings, httpx.AsyncClient(base_url="https://api.telegram.org", timeout=10.0)
+            settings,
+            httpx.AsyncClient(base_url="https://api.telegram.org", timeout=10.0),
         )
         self._consumer = f"{socket.gethostname()}-{os.getpid()}"
         self.processed = 0
@@ -153,7 +154,9 @@ class NotifyConsumer:
                         signal_payload = dict(decoded)
                 text = self._sender.format_generated(signal_payload or dict(decoded))
                 await self._lifecycle.record(
-                    event=stream, subject=subject, payload={"correlation_id": correlation_id}
+                    event=stream,
+                    subject=subject,
+                    payload={"correlation_id": correlation_id},
                 )
                 if await self._sender.send(text):
                     self.alerts_sent += 1
@@ -203,7 +206,10 @@ class NotifyConsumer:
                 await self._lifecycle.record(
                     event=stream,
                     subject=str(decoded.get("idempotency_key", subject)),
-                    payload={"pnl": decoded.get("pnl"), "ticket": decoded.get("ticket")},
+                    payload={
+                        "pnl": decoded.get("pnl"),
+                        "ticket": decoded.get("ticket"),
+                    },
                 )
                 text = self._sender.format_closed(dict(decoded))
                 if await self._sender.send(text):

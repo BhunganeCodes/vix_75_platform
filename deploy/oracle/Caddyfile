@@ -1,0 +1,54 @@
+# =====================================================================
+#  VIX75 Platform - Caddy reverse proxy with automatic HTTPS
+#
+#  Terminates Let's Encrypt certificates for the API host and proxies to
+#  the api-gateway on the internal compose network. Everything else
+#  (Postgres, Redis, ML, execution, Prometheus, Grafana) stays private.
+#
+#  NOTE: our gateway listens on container port 8000 (the "8080" in early
+#  drafts predated the Sprint-1 port map).
+#
+#  Swap api.yourdomain.com for your real DNS name before first start -
+#  Caddy will obtain + renew certificates automatically.
+# =====================================================================
+
+api.yourdomain.com {
+	encode zstd gzip
+
+	# Sensible defaults for an API edge.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Prometheus/Grafana stay internal-only; explicit deny as belt-and-braces.
+	@blocked path /metrics /debug/*
+	respond @blocked 403
+
+	reverse_proxy api-gateway:8000 {
+		health_uri /health
+		health_interval 15s
+		health_timeout 5s
+
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 20s
+		}
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 50MiB
+			roll_keep 5
+		}
+	}
+}
+
+# HTTP -> HTTPS redirect is implicit in Caddy when a site block uses a
+# public hostname, but we make it explicit for clarity.
+http://api.yourdomain.com {
+	redir https://{host}{uri} permanent
+}

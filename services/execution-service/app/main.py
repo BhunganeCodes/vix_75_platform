@@ -41,8 +41,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         await database.connect()
         await redis_client.ping()
-        if settings.shadow_mode:
-            logger.warning("SHADOW mode - live order_send disabled")
+        mode = "DRY_RUN" if settings.dry_run_mode else "LIVE"
+        if settings.dry_run_mode:
+            logger.warning("execution mode: %s - flip DRY_RUN_MODE only after validation", mode)
         else:
             await asyncio.to_thread(executor.client.connect)  # type: ignore[union-attr]
         logger.info("execution-service dependencies ready")

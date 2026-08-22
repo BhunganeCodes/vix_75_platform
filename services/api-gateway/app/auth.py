@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hmac
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 import jwt as pyjwt
 from fastapi import APIRouter, Depends, HTTPException, Request

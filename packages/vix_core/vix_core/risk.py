@@ -114,7 +114,10 @@ def compute_lots(
 
     if equity <= 0.0 or risk_pct <= 0.0:
         return LotSizingResult(
-            SizingStatus.REJECT_INVALID_INPUT, 0.0, "equity/risk_pct must be positive", 0.0
+            SizingStatus.REJECT_INVALID_INPUT,
+            0.0,
+            "equity/risk_pct must be positive",
+            0.0,
         )
     if constraints.tick_size <= 0.0 or constraints.tick_value <= 0.0:
         return LotSizingResult(
@@ -138,7 +141,10 @@ def compute_lots(
     loss_per_lot = (sl_distance / constraints.tick_size) * constraints.tick_value
     if loss_per_lot <= 0.0:
         return LotSizingResult(
-            SizingStatus.REJECT_INVALID_INPUT, 0.0, "loss_per_lot computed as zero", risk_amount
+            SizingStatus.REJECT_INVALID_INPUT,
+            0.0,
+            "loss_per_lot computed as zero",
+            risk_amount,
         )
 
     raw_lots = risk_amount / loss_per_lot
@@ -166,7 +172,10 @@ def compute_lots(
         required = lots * constraints.margin_per_lot
         budget = free_margin * margin_buffer
         while required > budget and lots > constraints.volume_min:
-            lots = max(_floor_to_step(lots - constraints.volume_step, constraints.volume_step), 0.0)
+            lots = max(
+                _floor_to_step(lots - constraints.volume_step, constraints.volume_step),
+                0.0,
+            )
             required = lots * constraints.margin_per_lot
         if required > budget:
             return LotSizingResult(

@@ -184,19 +184,6 @@ class ExecutionConsumer:
                 logger.warning("duplicate order suppressed via db", key=order.idempotency_key)
                 return
 
-            if self._settings.shadow_mode:
-                await self._db.set_status("cancelled", order.idempotency_key, desc="SHADOW_MODE")
-                await self._db.audit(
-                    "execution-service", "order.shadow_skipped", order.idempotency_key, "ok"
-                )
-                logger.info(
-                    "shadow mode; execution skipped",
-                    key=order.idempotency_key,
-                    direction=str(order.direction),
-                    lots=order.lots,
-                )
-                return
-
             outcome = await asyncio.to_thread(
                 self._executor.execute, order, correlation_id=correlation_id
             )
@@ -210,7 +197,10 @@ class ExecutionConsumer:
                     desc=res.retcode_description,
                     ticket=res.ticket,
                     price=res.price,
-                    extra={"attempts": outcome.attempts},
+                    extra={
+                        "attempts": outcome.attempts,
+                        "mode": "dry_run" if self._settings.dry_run_mode else "live",
+                    },
                 )
                 filled_fields = cast(
                     dict[Any, Any],
@@ -236,7 +226,9 @@ class ExecutionConsumer:
                 ORDERS_FILLED.labels(symbol=order.symbol).inc()
                 await self._redis.xadd(STREAM_FILLED, filled_fields)
                 logger.info(
-                    "order lifecycle complete", key=order.idempotency_key, ticket=res.ticket
+                    "order lifecycle complete",
+                    key=order.idempotency_key,
+                    ticket=res.ticket,
                 )
             else:
                 await self._db.set_status(
@@ -244,7 +236,11 @@ class ExecutionConsumer:
                     order.idempotency_key,
                     retcode=res.retcode,
                     desc=res.retcode_description,
-                    extra={"attempts": outcome.attempts, "mt5_last_error": outcome.last_error},
+                    extra={
+                        "attempts": outcome.attempts,
+                        "mt5_last_error": outcome.last_error,
+                        "mode": "dry_run" if self._settings.dry_run_mode else "live",
+                    },
                 )
                 rejected_fields = cast(
                     dict[Any, Any],

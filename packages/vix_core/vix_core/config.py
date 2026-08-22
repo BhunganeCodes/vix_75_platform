@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     max_open_positions: int = 3
     poll_interval_seconds: float = 5.0
 
+    # ---- Dry-run / safety -------------------------------------------------
+    # DRY_RUN_MODE=true simulates broker fills end-to-end (mock tickets,
+    # real pipeline, real alerts) so the full system can soak for the
+    # 2-week validation window before live capital. Defaults TRUE -
+    # flipping it to False is a deliberate, audited act.
+    dry_run_mode: bool = True
+
     # ---- Multi-timeframe confluence (signal-service) ---------------------
     ltf_timeframes: tuple[str, ...] = ("M5", "M15")
     htf_timeframes: tuple[str, ...] = ("H4", "D1")

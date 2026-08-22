@@ -158,7 +158,9 @@ def train_meta_label(
     final = lgb.LGBMClassifier(**params)
     final.fit(x, y)
     logger.info(
-        "meta-label trained", rows=len(x), mean_cv_log_loss=round(float(np.mean(fold_losses)), 4)
+        "meta-label trained",
+        rows=len(x),
+        mean_cv_log_loss=round(float(np.mean(fold_losses)), 4),
     )
 
     bundle = {

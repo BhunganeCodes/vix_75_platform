@@ -14,12 +14,15 @@ provides the same outcome with zero compatibility surface:
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from starlette.responses import Response
 
 from vix_core.logging import get_logger
+
+ASGIApp = Callable[[Request], Awaitable[Response]]
 
 logger = get_logger(__name__)
 
@@ -48,7 +51,9 @@ def attach_metrics(app: FastAPI, service_name: str) -> None:
     """Attach request metrics middleware + /metrics to an existing app."""
 
     @app.middleware("http")
-    async def prometheus_metrics(request: Request, call_next):
+    async def prometheus_metrics(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         start = time.perf_counter()
         try:
             response = await call_next(request)

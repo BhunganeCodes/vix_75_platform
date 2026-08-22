@@ -58,7 +58,9 @@ class TestGates:
 
         faded = ConfluenceScorer().evaluate(
             make_inputs(
-                regime=RegimeState.S0_RANGE, allow_s0_fade=True, zone_kind_touched=ZoneKind.DEMAND
+                regime=RegimeState.S0_RANGE,
+                allow_s0_fade=True,
+                zone_kind_touched=ZoneKind.DEMAND,
             )
         )
         assert faded.components.regime_ok

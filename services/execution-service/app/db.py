@@ -197,7 +197,15 @@ class ExecutionDatabase:
             row = await cur.fetchone()
         if row is None:
             return None
-        keys = ["idempotency_key", "symbol", "side", "lots", "entry_price", "sl_price", "tp_price"]
+        keys = [
+            "idempotency_key",
+            "symbol",
+            "side",
+            "lots",
+            "entry_price",
+            "sl_price",
+            "tp_price",
+        ]
         return dict(zip(keys, row, strict=True))
 
     async def audit(

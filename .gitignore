@@ -48,3 +48,9 @@ Thumbs.db
 
 # generated audit artifact
 requirements-audit.txt
+
+# ---- Legacy monolith artifacts (belong to the OLD repo) --------------
+/EA_testing/
+/vix75_v1/
+/vix75_v2/
+/vix75_cpp/

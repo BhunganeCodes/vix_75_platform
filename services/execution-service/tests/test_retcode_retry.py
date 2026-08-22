@@ -24,10 +24,13 @@ from fakes import (
 from vix_core.config import Settings
 
 
-def _consumer(fake_mt5: FakeMt5Module) -> tuple[ExecutionConsumer, FakeRedis, FakeExecutionDB]:
+def _consumer(
+    fake_mt5: FakeMt5Module,
+) -> tuple[ExecutionConsumer, FakeRedis, FakeExecutionDB]:
     settings = Settings(
         service_name="execution-test",
         shadow_mode=False,
+        dry_run_mode=False,
         database_url="unused://test",
     )
     db = FakeExecutionDB()
@@ -48,7 +51,8 @@ async def test_requote_then_done_eventually_fills() -> None:
     consumer, redis_fake, db = _consumer(fake_mt5)
 
     await redis_fake.xadd(
-        "order.request", make_order(idempotency_key="sig-retry-0003", signal_id="c" * 32)
+        "order.request",
+        make_order(idempotency_key="sig-retry-0003", signal_id="c" * 32),
     )
     processed = await consumer.drain(block_ms=1)
 

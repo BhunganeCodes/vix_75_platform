@@ -187,7 +187,10 @@ class TestSignalToOrderBus:
         client = redis_sync.from_url(infra["redis_url"], decode_responses=True)
         try:
             client.delete(
-                "feature.computed", "signal.generated", "order.request", "signal.rejected"
+                "feature.computed",
+                "signal.generated",
+                "order.request",
+                "signal.rejected",
             )
 
             correlation_id = "itest-correlation-0001"

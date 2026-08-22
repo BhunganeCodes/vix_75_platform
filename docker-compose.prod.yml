@@ -1,0 +1,269 @@
+# =====================================================================
+#  VIX75 Platform - PRODUCTION overlay for Oracle Cloud ARM
+#  (Ubuntu 22.04, A1.Flex 4 OCPU / 24 GB, Always Free)
+#
+#  Deployment model:
+#    * Lives at /opt/vix75/docker-compose.yml on the VM.
+#    * Secrets via env_file: /opt/vix75/.env (chmod 600, out-of-band).
+#    * ONLY caddy publishes host ports (80/443). Everything else is
+#      internal to the `vixnet` network - no Postgres/Redis/ML exposure.
+#    * DRY_RUN_MODE=true is pinned for the validation window; flipping it
+#      to false in /opt/vix75/.env is the explicit go-live act.
+#
+#  Usage:  cd /opt/vix75 && docker compose up -d
+# =====================================================================
+
+name: vix75-platform
+
+networks:
+  vixnet:
+    driver: bridge
+
+volumes:
+  timescale_data:
+  redis_data:
+  caddy_data:
+
+x-app-base: &app-base
+  env_file:
+    - /opt/vix75/.env
+  restart: unless-stopped
+  networks: [vixnet]
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  # ------------------------------------------------------------------
+  # Data stores
+  # ------------------------------------------------------------------
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    <<: *app-base
+    command: postgres -c shared_preload_libraries=timescaledb
+    environment:
+      POSTGRES_USER: vix
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in /opt/vix75/.env}
+      POSTGRES_DB: vix75
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./infra/timescale/schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vix -d vix75"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 2g
+    cpus: "1.5"
+
+  redis:
+    image: redis:7-alpine
+    <<: *app-base
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - redis_data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 512m
+    cpus: "0.5"
+
+  # ------------------------------------------------------------------
+  # Services (internal network only - NO host ports anywhere below)
+  # ------------------------------------------------------------------
+  data-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: data-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+      DRY_RUN_MODE: "true"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: "1.0"
+
+  feature-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: feature-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: "1.0"
+
+  ml-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: ml-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - /opt/vix75/models:/app/models
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    mem_limit: 4g          # LightGBM + HMM training headroom on A1
+    cpus: "2.0"
+
+  signal-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: signal-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+      DRY_RUN_MODE: "true"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: "1.0"
+
+  risk-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: risk-service
+    <<: *app-base
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DRY_RUN_MODE: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: "1.0"
+
+  execution-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: execution-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+      # SAFETY: keep true through the 2-week shadow window.
+      DRY_RUN_MODE: "true"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: "1.0"
+
+  notify-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: notify-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: "0.5"
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: api-gateway
+    <<: *app-base
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: ${JWT_SECRET:?set in /opt/vix75/.env}
+      GATEWAY_USERNAME: ${GATEWAY_USERNAME:-vix-admin}
+      GATEWAY_PASSWORD: ${GATEWAY_PASSWORD:?set in /opt/vix75/.env}
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: "1.0"
+
+  # ------------------------------------------------------------------
+  # Edge + observability
+  # ------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    <<: *app-base
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?set in /opt/vix75/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api-gateway
+    mem_limit: 256m
+    cpus: "0.25"
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    <<: *app-base
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    mem_limit: 1g
+    cpus: "1.0"
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    <<: *app-base
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-vix-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set in /opt/vix75/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    mem_limit: 512m
+    cpus: "0.5"

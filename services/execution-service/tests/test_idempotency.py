@@ -17,10 +17,13 @@ from fakes import (
 from vix_core.config import Settings
 
 
-def _consumer(fake_mt5: FakeMt5Module) -> tuple[ExecutionConsumer, FakeRedis, FakeExecutionDB]:
+def _consumer(
+    fake_mt5: FakeMt5Module,
+) -> tuple[ExecutionConsumer, FakeRedis, FakeExecutionDB]:
     settings = Settings(
         service_name="execution-test",
         shadow_mode=False,
+        dry_run_mode=False,
         database_url="unused://test",
     )
     db = FakeExecutionDB()

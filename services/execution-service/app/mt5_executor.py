@@ -113,8 +113,42 @@ class MT5Executor:
     # Execution
     # ------------------------------------------------------------------
 
+    def execute_dry_run(self, order: OrderRequest) -> ExecOutcome:
+        """Simulate a broker fill WITHOUT touching ``order_send``.
+
+        Emits a mock ticket derived from wall-clock time and prices from
+        the live tick feed so downstream consumers (DB rows, Telegram
+        alerts, metrics) behave exactly as they would in production.
+        """
+        tick = self._tick(order.symbol)
+        price = tick.ask if order.direction is Direction.BUY else tick.bid
+        ticket = int(time.time())
+        logger.info(
+            "dry-run fill simulated",
+            mode="dry_run",
+            key=order.idempotency_key,
+            direction=str(order.direction),
+            lots=order.lots,
+            price=price,
+            ticket=ticket,
+        )
+        return ExecOutcome(
+            result=OrderResult(
+                idempotency_key=order.idempotency_key,
+                accepted=True,
+                retcode=TRADE_RETCODE_DONE,
+                retcode_description="DONE (dry_run)",
+                ticket=ticket,
+                price=float(price),
+            ),
+            attempts=0,
+        )
+
     def execute(self, order: OrderRequest, *, correlation_id: str = "-") -> ExecOutcome:
-        """Send the market order; classify retcode; retry transients."""
+        """Send the market order (or simulate in dry-run); classify retcodes."""
+        if self.settings.dry_run_mode:
+            return self.execute_dry_run(order)
+
         request = self.build_request(order)
         mt5 = self._module()
 

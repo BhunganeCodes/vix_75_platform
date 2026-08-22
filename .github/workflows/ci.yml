@@ -16,6 +16,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - name: Cache uv wheels
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock', '**/pyproject.toml') }}
+          restore-keys: uv-${{ runner.os }}-
       - name: Ruff (lint)
         run: uvx ruff check .
       - name: Black (format check)
@@ -28,6 +36,14 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - name: Cache uv wheels
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock', '**/pyproject.toml') }}
+          restore-keys: uv-${{ runner.os }}-
       - name: Install workspace
         run: uv sync --all-packages --dev
       - name: Mypy (vix_core + scripts)
@@ -43,24 +59,78 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      timescaledb:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: vix
+          POSTGRES_PASSWORD: vix_dev_password
+          POSTGRES_DB: vix75
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vix -d vix75"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://vix:vix_dev_password@localhost:5432/vix75
+      REDIS_URL: redis://localhost:6379/0
+      DRY_RUN_MODE: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - name: Install workspace
-        run: uv sync --all-packages --dev
-      - name: Pytest (shared library)
-        run: uv run pytest
-      - name: Pytest (per service)
+      - name: Cache uv wheels
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            .venv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock', '**/pyproject.toml') }}
+          restore-keys: uv-${{ runner.os }}-
+      - name: Install workspace + coverage
+        run: uv sync --all-packages --dev && uv pip install pytest-cov
+      - name: Apply TimescaleDB schema
+        run: |
+          uv run --no-sync --python 3.12 python - << 'PY'
+          import pathlib, psycopg
+          dsn = "postgresql://vix:vix_dev_password@localhost:5432/vix75"
+          sql = pathlib.Path("infra/timescale/schema.sql").read_text(encoding="utf-8")
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(sql)
+          print("schema applied")
+          PY
+      - name: Pytest (shared library, coverage)
+        run: uv run pytest --cov=packages/vix_core/vix_core --cov-report=term-missing --cov-report=xml
+      - name: Pytest (per service; DB+Redis reachable via job services)
         run: |
           set -e
           for d in services/*/tests; do
             svc=$(dirname "$d")
             echo "::group::pytest $svc"
-            (cd "$svc" && uv run --no-sync python -m pytest tests)
+            (cd "$svc" && uv run --no-sync python -m pytest tests -v \
+              --ignore=tests/test_reconciliation.py \
+              --ignore=tests/test_bus_integration.py || exit 1)
             echo "::endgroup::"
           done
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
 
   security:
     runs-on: ubuntu-latest

@@ -35,7 +35,7 @@ async def health(
         "status": "ok" if db_ok else "degraded",
         "database": "up" if db_ok else "down",
         "mt5": mt5_state,
-        "shadow_mode": executor.settings.shadow_mode,
+        "mode": ("dry_run" if executor.settings.dry_run_mode else "live"),
     }
 
 

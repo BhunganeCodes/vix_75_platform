@@ -36,7 +36,10 @@ class BridgeMT5Client(MT5Client):
     """Ingestion-facing wrapper around the shared MT5 client."""
 
     def fetch_latest_bars(
-        self, symbol: str, timeframes: tuple[str, ...] = INGEST_TIMEFRAMES, count: int = 300
+        self,
+        symbol: str,
+        timeframes: tuple[str, ...] = INGEST_TIMEFRAMES,
+        count: int = 300,
     ) -> dict[str, tuple[Bar, ...]]:
         """Fetch the most recent closed bars for every polled timeframe."""
         return {tf: self.copy_bars(symbol, tf, count) for tf in timeframes}
