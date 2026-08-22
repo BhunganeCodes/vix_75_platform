@@ -1,0 +1,49 @@
+# Prometheus scrape configuration for the VIX75 platform.
+#
+# All services expose /metrics on their INTERNAL port 8000 inside the
+# compose network; nothing here touches host-published ports.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api-gateway
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api-gateway:8000"]
+
+  - job_name: data-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["data-service:8000"]
+
+  - job_name: feature-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["feature-service:8000"]
+
+  - job_name: ml-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["ml-service:8000"]
+
+  - job_name: signal-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["signal-service:8000"]
+
+  - job_name: risk-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["risk-service:8000"]
+
+  - job_name: execution-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["execution-service:8000"]
+
+  - job_name: notify-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["notify-service:8000"]

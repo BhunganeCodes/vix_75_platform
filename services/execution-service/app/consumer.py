@@ -17,6 +17,7 @@ import socket
 from typing import Any, cast
 
 import redis.asyncio as aioredis
+from prometheus_client import Counter
 from redis.exceptions import ResponseError
 from vix_core.config import Settings
 from vix_core.correlation import (
@@ -39,6 +40,17 @@ STREAM_REJECTED = "order.rejected"
 GROUP = "execution-service"
 RESULT_KEY_TEMPLATE = "result:order:{key}"
 RESULT_TTL_S = 7 * 24 * 3600
+
+ORDERS_FILLED = Counter(
+    "vix75_orders_filled_total",
+    "Broker-confirmed order fills",
+    ["symbol"],
+)
+ORDERS_REJECTED = Counter(
+    "vix75_orders_rejected_total",
+    "Orders rejected by MT5 (hard failure or exhausted retries)",
+    ["symbol", "reason"],
+)
 
 
 class ExecutionConsumer:
@@ -221,6 +233,7 @@ class ExecutionConsumer:
                         correlation_id,
                     ),
                 )
+                ORDERS_FILLED.labels(symbol=order.symbol).inc()
                 await self._redis.xadd(STREAM_FILLED, filled_fields)
                 logger.info(
                     "order lifecycle complete", key=order.idempotency_key, ticket=res.ticket
@@ -249,6 +262,10 @@ class ExecutionConsumer:
                         correlation_id,
                     ),
                 )
+                ORDERS_REJECTED.labels(
+                    symbol=order.symbol,
+                    reason=(res.retcode_description or "UNKNOWN"),
+                ).inc()
                 await self._redis.xadd(STREAM_REJECTED, rejected_fields)
 
             await self._redis.set(

@@ -101,6 +101,13 @@ class Settings(BaseSettings):
     # ---- Notifications (notify-service) ------------------------------------
     alert_rejections: bool = False  # muted by default per spec
 
+    # ---- API gateway ---------------------------------------------------------
+    gateway_username: str = "vix-admin"
+    gateway_password: SecretStr = SecretStr("change-me-gateway")
+    token_expire_minutes: int = Field(default=60, ge=1, le=24 * 60)
+    rate_limit_per_minute: int = Field(default=100, ge=1)
+    rate_limit_window_seconds: int = Field(default=60, ge=1)
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

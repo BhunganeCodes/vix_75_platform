@@ -12,9 +12,11 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
+from vix_core.observability import attach_metrics
 
 if sys.platform == "win32":  # pragma: no cover - platform guard
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 from .consumer import RiskConsumer
 from .exposure import OPEN_KEY, ExposureTracker
@@ -52,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="vix75 risk-service", version="0.2.0", lifespan=lifespan)
+attach_metrics(app, "risk-service")
 
 
 @app.get("/health")

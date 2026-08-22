@@ -22,7 +22,31 @@ from typing import Any
 import structlog
 from structlog.typing import Processor
 
+
+def add_correlation_id(
+    logger: Any, method: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Structlog processor: guarantee a correlation id key on every event.
+
+    Runs AFTER ``merge_contextvars`` in the shared processor chain, so a
+    middleware that called ``vix_core.correlation.bind_correlation_id``
+    is already reflected here; this also normalizes alternate spellings
+    (raw ``X-Correlation-Id`` header style) to the canonical field name.
+    """
+    del logger, method
+    if CORRELATION_FIELD_KEY not in event_dict:
+        for candidate in ("correlation_id", "x_correlation_id", "X-Correlation-Id"):
+            value = event_dict.get(candidate)
+            if value:
+                event_dict[CORRELATION_FIELD_KEY] = value
+                break
+    return event_dict
+
+
 REDACTED = "[REDACTED]"
+
+#: Canonical event-dict key carrying the X-Correlation-Id value.
+CORRELATION_FIELD_KEY = "correlation_id"
 
 #: Event-dict keys whose values must never be logged verbatim.
 SENSITIVE_KEYS: frozenset[str] = frozenset(
@@ -116,6 +140,7 @@ def configure_logging(
 
     shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
+        add_correlation_id,
         structlog.stdlib.add_log_level,
         timestamper,
         structlog.processors.StackInfoRenderer(),

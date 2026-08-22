@@ -8,6 +8,8 @@ dependencies = [
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",
     "pyjwt>=2.9,<3",
+    "httpx>=0.27,<0.29",
+    "redis>=5.0,<6",
 ]
 
 [tool.uv]

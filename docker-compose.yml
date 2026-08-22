@@ -1,9 +1,15 @@
 # =====================================================================
 #  VIX75 Platform - local development orchestration
+#
+#  NETWORK SECURITY MODEL (Sprint 5):
+#    * Only api-gateway, prometheus, grafana publish host ports.
+#    * Internal services are reachable ONLY via the `vixnet` aliases
+#      (service DNS name :8000) - no host port bindings.
+#    * Postgres/Redis bind to 127.0.0.1 so the LOCAL Windows MT5 bridge
+#      can reach them without exposing them to the network.
+#
 #  Usage:  docker compose up -d timescaledb redis
-#          docker compose --profile services up -d      # all skeletons
-#  Secrets come from .env (local dev ONLY). Production must use Docker
-#  secrets / Oracle Vault. Never bake .env into an image layer.
+#          docker compose --profile services up -d
 # =====================================================================
 
 name: vix75-platform
@@ -18,7 +24,7 @@ volumes:
 
 services:
   # ------------------------------------------------------------------
-  # Infrastructure
+  # Infrastructure (loopback-only host bindings)
   # ------------------------------------------------------------------
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16
@@ -29,7 +35,7 @@ services:
       POSTGRES_DB: vix75
     command: postgres -c shared_preload_libraries=timescaledb
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./infra/timescale/schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
@@ -45,7 +51,7 @@ services:
     container_name: vix-redis
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
       - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -57,7 +63,43 @@ services:
     networks: [vixnet]
 
   # ------------------------------------------------------------------
-  # Service skeletons (profile "services"; data-service is functional)
+  # Observability stack
+  # ------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: vix-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [vixnet]
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: vix-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: vix-admin            # local dev only
+      GF_SECURITY_ADMIN_PASSWORD: vix_dev_password # rotate in prod
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks: [vixnet]
+
+  # ------------------------------------------------------------------
+  # Services - internal network ONLY (no host ports)
   # ------------------------------------------------------------------
   data-service:
     build:
@@ -67,10 +109,8 @@ services:
         SERVICE_NAME: data-service
     env_file: .env
     environment:
-      VIX_DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
-      VIX_REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8001:8000"
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -86,11 +126,12 @@ services:
       args:
         SERVICE_NAME: feature-service
     environment:
-      VIX_REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8002:8000"
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
@@ -101,14 +142,16 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: ml-service
+    env_file: .env
     environment:
-      VIX_DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - ./models:/app/models
-    ports:
-      - "8003:8000"
     depends_on:
       timescaledb:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
@@ -119,12 +162,14 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: signal-service
+    env_file: .env
     environment:
-      VIX_REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8004:8000"
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       redis:
+        condition: service_healthy
+      timescaledb:
         condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
@@ -135,8 +180,12 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: risk-service
-    ports:
-      - "8005:8000"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
 
@@ -147,8 +196,14 @@ services:
       args:
         SERVICE_NAME: execution-service
     env_file: .env
-    ports:
-      - "8006:8000"
+    environment:
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
 
@@ -159,8 +214,14 @@ services:
       args:
         SERVICE_NAME: notify-service
     env_file: .env
-    ports:
-      - "8007:8000"
+    environment:
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
     restart: unless-stopped
     networks: [vixnet]
 
@@ -170,12 +231,18 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: api-gateway
+    env_file: .env
     environment:
-      VIX_JWT_SECRET: dev-only-change-me
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: dev-only-change-me
     ports:
-      - "8000:8000"
+      - "8000:8000"                                 # the ONLY public edge
     depends_on:
-      - signal-service
-      - risk-service
+      redis:
+        condition: service_healthy
+      signal-service:
+        condition: service_started
+      risk-service:
+        condition: service_started
     restart: unless-stopped
     networks: [vixnet]

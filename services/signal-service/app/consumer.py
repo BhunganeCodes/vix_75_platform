@@ -19,6 +19,7 @@ import socket
 from typing import Any, cast
 
 import redis.asyncio as aioredis
+from prometheus_client import Counter
 from redis.exceptions import ResponseError
 from vix_core.config import Settings
 from vix_core.correlation import (
@@ -38,6 +39,17 @@ logger = get_logger(__name__)
 STREAM_IN = "feature.computed"
 STREAM_OUT = "signal.generated"
 GROUP = "signal-service"
+
+SIGNALS_GENERATED = Counter(
+    "vix75_signals_generated_total",
+    "Confluence-gated signals emitted",
+    ["symbol", "timeframe"],
+)
+SIGNALS_REJECTED = Counter(
+    "vix75_signals_rejected_total",
+    "Events rejected by the confluence gates",
+    ["timeframe"],
+)
 
 
 class SignalConsumer:
@@ -139,6 +151,7 @@ class SignalConsumer:
 
             evaluation = await asyncio.to_thread(self._engine.evaluate, ltf, market)
             if evaluation.signal is None:
+                SIGNALS_REJECTED.labels(timeframe=timeframe).inc()
                 logger.info(
                     "confluence rejected",
                     timeframe=timeframe,
@@ -157,6 +170,7 @@ class SignalConsumer:
             )
             entry_typed = cast("dict[Any, Any]", entry)
             await self._redis.xadd(STREAM_OUT, entry_typed)
+            SIGNALS_GENERATED.labels(symbol=symbol, timeframe=timeframe).inc()
             self.processed += 1
             self.signals_fired += 1
             logger.info(

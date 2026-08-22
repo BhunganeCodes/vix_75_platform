@@ -13,9 +13,11 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
+from vix_core.observability import attach_metrics
 
 if sys.platform == "win32":  # pragma: no cover - psycopg3 async requirement
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 from .consumer import NotifyConsumer
 from .lifecycle import LifecycleLogger
@@ -66,6 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="vix75 notify-service", version="0.2.0", lifespan=lifespan)
+attach_metrics(app, "notify-service")
 
 
 @app.get("/health")

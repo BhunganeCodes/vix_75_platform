@@ -169,7 +169,7 @@ class TestDelivery:
     async def test_truncated_token_never_posts(self) -> None:
         settings = Settings(
             service_name="notify-test",
-            telegram_token="7863491044:AAG4...",  # inert placeholder  # noqa: S106
+            telegram_token="7863491044:AAG4...",  # inert placeholder from .env
             telegram_chat_id="111222333",
         )
         client = FakeAsyncClient()

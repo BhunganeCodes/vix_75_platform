@@ -15,6 +15,7 @@ import redis.asyncio as aioredis
 from fastapi import FastAPI, Request
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
+from vix_core.observability import attach_metrics
 
 from .consumer import FeatureConsumer
 from .db import FeatureDatabase
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="vix75 feature-service", version="0.2.0", lifespan=lifespan)
+attach_metrics(app, "feature-service")
 
 
 @app.get("/health")
