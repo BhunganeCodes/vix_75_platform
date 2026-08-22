@@ -1,0 +1,86 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Ruff (lint)
+        run: uvx ruff check .
+      - name: Black (format check)
+        run: uvx black --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install workspace
+        run: uv sync --all-packages --dev
+      - name: Mypy (vix_core + scripts)
+        run: uv run mypy packages/vix_core/vix_core packages/vix_core/tests scripts
+      - name: Mypy (services, one app package at a time)
+        run: |
+          set -e
+          for svc in services/*/; do
+            echo "::group::mypy $svc"
+            (cd "$svc" && uv run --no-sync python -m mypy --config-file ../../pyproject.toml app)
+            echo "::endgroup::"
+          done
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Install workspace
+        run: uv sync --all-packages --dev
+      - name: Pytest (shared library)
+        run: uv run pytest
+      - name: Pytest (per service)
+        run: |
+          set -e
+          for d in services/*/tests; do
+            svc=$(dirname "$d")
+            echo "::group::pytest $svc"
+            (cd "$svc" && uv run --no-sync python -m pytest tests)
+            echo "::endgroup::"
+          done
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Export lockfile for audit
+        run: |
+          uv sync --all-packages --dev
+          # Exclude the local workspace package - it is not on PyPI and
+          # cannot be audited remotely (pip-audit --strict would fail).
+          uv export --all-packages --no-hashes --no-emit-package vix-core \
+            --format requirements-txt --output-file requirements-audit.txt
+      - name: pip-audit
+        run: uvx pip-audit --requirement requirements-audit.txt --strict

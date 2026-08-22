@@ -1,0 +1,17 @@
+[project]
+name = "notify-service"
+version = "0.1.0"
+description = "Telegram alerts and structured lifecycle notifications"
+requires-python = ">=3.12"
+dependencies = [
+    "vix-core",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "httpx>=0.27,<0.29",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+vix-core = { workspace = true }

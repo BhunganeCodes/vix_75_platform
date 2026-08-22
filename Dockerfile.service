@@ -1,0 +1,30 @@
+# =====================================================================
+#  Generic service image for the vix75-platform skeletons.
+#  Build context is ALWAYS the repository root so the shared vix_core
+#  package can be installed. Per-service code lives in /app/services.
+#
+#  SECURITY: .env is intentionally NEVER copied into the image.
+#  Secrets are injected at runtime via compose `env_file` or, in
+#  production, Docker secrets / Oracle Vault.
+# =====================================================================
+FROM python:3.12-slim
+
+ARG SERVICE_NAME=data-service
+ENV SERVICE_NAME=${SERVICE_NAME} \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+COPY packages/vix_core/ /app/packages/vix_core/
+COPY services/${SERVICE_NAME}/ /app/services/${SERVICE_NAME}/
+
+RUN pip install --no-cache-dir /app/packages/vix_core \
+    "fastapi>=0.115,<1" \
+    "uvicorn[standard]>=0.30,<1"
+
+RUN useradd --create-home --uid 10001 vix && chown -R vix:vix /app
+USER vix
+
+EXPOSE 8000
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir /app/services/${SERVICE_NAME}"]

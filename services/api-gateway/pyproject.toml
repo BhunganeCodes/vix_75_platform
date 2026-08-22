@@ -1,0 +1,17 @@
+[project]
+name = "api-gateway"
+version = "0.1.0"
+description = "JWT-authenticated reverse proxy / edge for the platform"
+requires-python = ">=3.12"
+dependencies = [
+    "vix-core",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "pyjwt>=2.9,<3",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+vix-core = { workspace = true }

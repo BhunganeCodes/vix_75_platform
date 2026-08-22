@@ -1,0 +1,181 @@
+# =====================================================================
+#  VIX75 Platform - local development orchestration
+#  Usage:  docker compose up -d timescaledb redis
+#          docker compose --profile services up -d      # all skeletons
+#  Secrets come from .env (local dev ONLY). Production must use Docker
+#  secrets / Oracle Vault. Never bake .env into an image layer.
+# =====================================================================
+
+name: vix75-platform
+
+networks:
+  vixnet:
+    driver: bridge
+
+volumes:
+  timescale_data:
+  redis_data:
+
+services:
+  # ------------------------------------------------------------------
+  # Infrastructure
+  # ------------------------------------------------------------------
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: vix-timescaledb
+    environment:
+      POSTGRES_USER: vix
+      POSTGRES_PASSWORD: vix_dev_password        # local dev only
+      POSTGRES_DB: vix75
+    command: postgres -c shared_preload_libraries=timescaledb
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./infra/timescale/schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vix -d vix75"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vixnet]
+
+  redis:
+    image: redis:7-alpine
+    container_name: vix-redis
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vixnet]
+
+  # ------------------------------------------------------------------
+  # Service skeletons (profile "services"; data-service is functional)
+  # ------------------------------------------------------------------
+  data-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: data-service
+    env_file: .env
+    environment:
+      VIX_DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      VIX_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8001:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [vixnet]
+
+  feature-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: feature-service
+    environment:
+      VIX_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8002:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [vixnet]
+
+  ml-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: ml-service
+    environment:
+      VIX_DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+    volumes:
+      - ./models:/app/models
+    ports:
+      - "8003:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [vixnet]
+
+  signal-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: signal-service
+    environment:
+      VIX_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8004:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [vixnet]
+
+  risk-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: risk-service
+    ports:
+      - "8005:8000"
+    restart: unless-stopped
+    networks: [vixnet]
+
+  execution-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: execution-service
+    env_file: .env
+    ports:
+      - "8006:8000"
+    restart: unless-stopped
+    networks: [vixnet]
+
+  notify-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: notify-service
+    env_file: .env
+    ports:
+      - "8007:8000"
+    restart: unless-stopped
+    networks: [vixnet]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: api-gateway
+    environment:
+      VIX_JWT_SECRET: dev-only-change-me
+    ports:
+      - "8000:8000"
+    depends_on:
+      - signal-service
+      - risk-service
+    restart: unless-stopped
+    networks: [vixnet]

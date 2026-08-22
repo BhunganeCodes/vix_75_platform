@@ -1,0 +1,39 @@
+# Gitleaks configuration for vix75-platform.
+#
+# The default rule set targets provider-specific tokens and generic API-key
+# shapes; it does NOT catch broker/terminal credential pairs like
+# `login=<digits> password=<value>`. This file EXTENDS the defaults with
+# project-specific rules so a repeat of the legacy-repo incident fails CI.
+#
+# Only narrow allowlists live here - never broad exclusions.
+
+title = "vix75-platform secret scan"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "vix-mt5-login-password-pair"
+description = "MetaTrader login/password key-value pair"
+regex = '''(?i)login['"\s:=]+[0-9]{6,12}[^,'"]{0,30}?password['"\s:=]+\S{6,}'''
+keywords = ["login", "password"]
+tags = ["mt5", "credential"]
+
+[[rules]]
+id = "vix-known-broker-token-shapes"
+description = "Deriv/Telegram token shapes (digits:payload or alphanumeric app tokens)"
+regex = '''(?i)(deriv_api_token|telegram_token)['"\s:=]+[A-Za-z0-9:_-]{16,}'''
+keywords = ["deriv", "telegram"]
+tags = ["broker", "token"]
+
+[allowlist]
+description = "Intentional local-dev placeholders (not secrets)"
+regexes = [
+  '''dev-only-change-me''',
+  '''vix_dev_password''',
+  '''change-me''',
+  '''your_chat_id''',
+  '''fake-token''',
+  '''Not-A-Real-Pw''',
+  '''11112222''',
+]

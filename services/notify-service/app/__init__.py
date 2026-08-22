@@ -1,0 +1,1 @@
+"""notify-service application package."""

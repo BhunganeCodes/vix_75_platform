@@ -1,0 +1,50 @@
+# ---- Secrets: NEVER commit ----------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*ssh-key*
+credentials*.json
+token*.txt
+
+# ---- Models & artifacts (checksums ARE committed) ------------------
+models/
+*.joblib
+*.pkl
+*.onnx
+!*.sha256
+
+# ---- Python ---------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ---- Data & logs (regenerable) --------------------------------------
+logs/
+data/*.csv
+data/*.parquet
+*.log
+backups/
+*.dump
+
+# ---- Node / tooling junk --------------------------------------------
+node_modules/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# generated audit artifact
+requirements-audit.txt
