@@ -34,12 +34,14 @@ from vix_core.schemas import (
     OrderResult,
     RegimeSnapshot,
     RegimeState,
+    RejectionReason,
     Signal,
     SignalStatus,
     Zone,
     ZoneKind,
     ZoneState,
 )
+from vix_core.scoring import ConfluenceResult, calculate_score
 
 __all__ = [
     "CORRELATION_FIELD",
@@ -48,6 +50,7 @@ __all__ = [
     "Bar",
     "BarSeries",
     "ConfluenceComponents",
+    "ConfluenceResult",
     "Direction",
     "Environment",
     "LotSizingResult",
@@ -56,6 +59,7 @@ __all__ = [
     "RedactingFilter",
     "RegimeSnapshot",
     "RegimeState",
+    "RejectionReason",
     "Settings",
     "Signal",
     "SignalStatus",
@@ -66,6 +70,7 @@ __all__ = [
     "ZoneState",
     "artifact_digest",
     "bind_correlation_id",
+    "calculate_score",
     "compute_lots",
     "configure_logging",
     "get_logger",

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS features (
     symbol        TEXT             NOT NULL,
     timeframe     TEXT             NOT NULL,
     ts            TIMESTAMPTZ      NOT NULL,
+    close         DOUBLE PRECISION,
     atr           DOUBLE PRECISION,
     atr_norm      DOUBLE PRECISION,               -- ATR / close
     rsi           DOUBLE PRECISION,
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS features (
     swing_low     DOUBLE PRECISION,
     regime_id     SMALLINT,
     regime_probs  DOUBLE PRECISION[],
-    zones         JSONB,                            -- active zone snapshot at ts
+    zones         JSONB,                            -- zone snapshot at ts
     created_at    TIMESTAMPTZ      NOT NULL DEFAULT now(),
     PRIMARY KEY (symbol, timeframe, ts)
 );
@@ -81,6 +82,7 @@ SELECT create_hypertable(
 );
 
 -- Upgrade path for databases initialised with the Sprint-1 schema.
+ALTER TABLE features ADD COLUMN IF NOT EXISTS close       DOUBLE PRECISION;
 ALTER TABLE features ADD COLUMN IF NOT EXISTS atr_norm     DOUBLE PRECISION;
 ALTER TABLE features ADD COLUMN IF NOT EXISTS bb_upper     DOUBLE PRECISION;
 ALTER TABLE features ADD COLUMN IF NOT EXISTS bb_mid       DOUBLE PRECISION;

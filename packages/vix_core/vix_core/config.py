@@ -81,6 +81,19 @@ class Settings(BaseSettings):
     max_open_positions: int = 3
     poll_interval_seconds: float = 5.0
 
+    # ---- Multi-timeframe confluence (signal-service) ---------------------
+    ltf_timeframes: tuple[str, ...] = ("M5", "M15")
+    htf_timeframes: tuple[str, ...] = ("H4", "D1")
+    confluence_min: float = 4.5  # out of integer-weighted 7 (spec default)
+    allow_s0_fade: bool = False  # reversal strategy in HMM range regime
+    sl_atr_buffer: float = 0.5  # SL beyond zone edge, in ATR multiples
+    tp_rr_1: float = 2.0  # first take-profit as R multiple
+    tp_rr_2: float = 3.0  # second take-profit as R multiple
+
+    # ---- Exposure & margin guardrails (risk-service) ----------------------
+    max_total_risk_pct: float = 3.0  # summed open risk, % of balance
+    margin_usage_cap: float = 0.5  # required margin <= cap * free margin
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

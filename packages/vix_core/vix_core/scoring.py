@@ -19,8 +19,6 @@ from dataclasses import dataclass
 
 from vix_core.schemas import ConfluenceComponents, Direction, RegimeState, ZoneKind
 
-__all__ = ["ConfluenceInputs", "ConfluenceResult", "ConfluenceScorer"]
-
 
 @dataclass(frozen=True, slots=True)
 class ConfluenceInputs:
@@ -45,12 +43,34 @@ class ConfluenceResult:
     rejections: tuple[str, ...]
 
 
+def calculate_score(
+    inputs: ConfluenceInputs,
+    *,
+    min_score: float = 4.5,
+    min_p_win: float = 0.55,
+) -> ConfluenceResult:
+    """Module-level scoring entry point (spec name).
+
+    Thin delegation to :class:`ConfluenceScorer`; ``min_score`` accepts a
+    float threshold (e.g. ``4.5`` against the integer-weighted max of 7).
+    """
+    return ConfluenceScorer(min_score=min_score, min_p_win=min_p_win).evaluate(inputs)
+
+
+__all__ = [
+    "ConfluenceInputs",
+    "ConfluenceResult",
+    "ConfluenceScorer",
+    "calculate_score",
+]
+
+
 class ConfluenceScorer:
     """Stateless scorer; construct with thresholds and reuse."""
 
     __slots__ = ("min_p_win", "min_score")
 
-    def __init__(self, *, min_score: int = 5, min_p_win: float = 0.55) -> None:
+    def __init__(self, *, min_score: float = 5, min_p_win: float = 0.55) -> None:
         self.min_score = min_score
         self.min_p_win = min_p_win
 

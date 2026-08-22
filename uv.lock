@@ -1490,6 +1490,7 @@ version = "0.1.0"
 source = { virtual = "services/risk-service" }
 dependencies = [
     { name = "fastapi" },
+    { name = "redis" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "vix-core" },
 ]
@@ -1497,6 +1498,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "redis", specifier = ">=5.0,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
     { name = "vix-core", editable = "packages/vix_core" },
 ]
@@ -1654,6 +1656,7 @@ version = "0.1.0"
 source = { virtual = "services/signal-service" }
 dependencies = [
     { name = "fastapi" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "redis" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "vix-core" },
@@ -1662,6 +1665,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
     { name = "redis", specifier = ">=5.0,<6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<1" },
     { name = "vix-core", editable = "packages/vix_core" },

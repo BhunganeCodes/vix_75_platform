@@ -99,6 +99,18 @@ class Direction(StrEnum):
     SELL = "SELL"
 
 
+class RejectionReason(StrEnum):
+    """Canonical risk-gate rejection reasons (signal.rejected payloads)."""
+
+    INVALID_SIGNAL = "invalid_signal"
+    ACCOUNT_DATA_UNAVAILABLE = "account_data_unavailable"
+    MAX_OPEN_TRADES_REACHED = "max_open_trades_reached"
+    MAX_TOTAL_RISK_EXCEEDED = "max_total_risk_exceeded"
+    STOPS_LEVEL_VIOLATION = "stops_level_violation"
+    RISK_TOO_SMALL = "risk_too_small"  # clamp-DOWN rule: below volume_min
+    MARGIN_EXCEEDED = "margin_exceeded"
+
+
 class SignalStatus(StrEnum):
     PROPOSED = "proposed"
     APPROVED = "approved"

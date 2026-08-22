@@ -1,32 +1,25 @@
-"""risk-service: position sizing + exposure guardrails.
-
-Functional from day one - it delegates all math to the pure
-``vix_core.risk.compute_lots`` which enforces clamp-DOWN semantics,
-stops-level and margin validation.
-"""
+"""risk-service entry point: FastAPI app + gating consumer."""
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from pydantic import BaseModel, Field
+import redis.asyncio as aioredis
+from fastapi import FastAPI
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
-from vix_core.risk import SizingStatus, SymbolConstraints, compute_lots
+
+if sys.platform == "win32":  # pragma: no cover - platform guard
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from .consumer import RiskConsumer
+from .exposure import OPEN_KEY, ExposureTracker
 
 logger = get_logger(__name__)
-
-
-class SizeRequest(BaseModel):
-    symbol: str = "Volatility 75 Index"
-    equity: float = Field(gt=0)
-    entry: float = Field(gt=0)
-    stop_loss: float = Field(gt=0)
-    take_profit: float = Field(gt=0)
-    constraints: dict[str, float | int]
 
 
 @asynccontextmanager
@@ -35,59 +28,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(
         settings.service_name, level=settings.log_level, json_output=settings.log_json
     )
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await redis_client.ping()
+        logger.info("risk-service dependencies ready")
+    except Exception:
+        logger.exception("dependency startup failed")
+
+    consumer = RiskConsumer(settings, redis_client)
+    task = asyncio.create_task(consumer.run_forever())
+
     app.state.settings = settings
+    app.state.redis = redis_client
+    app.state.consumer = consumer
+
     yield
 
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    await redis_client.aclose()
+    logger.info("risk-service stopped")
 
-app = FastAPI(title="vix75 risk-service", version="0.1.0", lifespan=lifespan)
+
+app = FastAPI(title="vix75 risk-service", version="0.2.0", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"service": "risk-service", "status": "ok"}
-
-
-def get_settings_dep(request: Request) -> Settings:
-    return request.app.state.settings
-
-
-@app.post("/size")
-async def size(
-    req: SizeRequest,
-    settings: Annotated[Settings, Depends(get_settings_dep)],
-) -> dict[str, object]:
-    try:
-        constraints = SymbolConstraints(
-            volume_min=float(req.constraints["volume_min"]),
-            volume_max=float(req.constraints["volume_max"]),
-            volume_step=float(req.constraints["volume_step"]),
-            tick_size=float(req.constraints["tick_size"]),
-            tick_value=float(req.constraints["tick_value"]),
-            point=float(req.constraints["point"]),
-            stops_level_points=int(req.constraints["stops_level_points"]),
-            margin_per_lot=float(req.constraints["margin_per_lot"]),
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=422, detail=f"missing constraint {exc}") from exc
-
-    result = compute_lots(
-        equity=req.equity,
-        risk_pct=settings.risk_pct_per_trade,
-        entry=req.entry,
-        stop_loss=req.stop_loss,
-        take_profit=req.take_profit,
-        constraints=constraints,
-    )
-    logger.info(
-        "sized",
-        symbol=req.symbol,
-        status=result.status,
-        lots=result.lots,
-        reason=result.reason,
-    )
+async def health(request: object) -> dict[str, object]:
+    state = getattr(request, "app", None)
+    consumer = getattr(getattr(state, "state", None), "consumer", None)
+    tracker: ExposureTracker | None = getattr(consumer, "_tracker", None)
     return {
-        "status": str(result.status),
-        "lots": result.lots,
-        "reason": result.reason,
-        "accepted": result.status in (SizingStatus.OK, SizingStatus.CAPPED_BY_VOLUME_MAX),
+        "service": "risk-service",
+        "status": "ok",
+        "open_positions": tracker.open_count() if tracker else None,
+        "total_open_risk": round(tracker.total_open_risk(), 2) if tracker else None,
+        "stream_key": OPEN_KEY,
     }
