@@ -54,6 +54,7 @@ single real lot is traded**.
 | **risk-service** | Position sizing (clamp-DOWN semantics, never exceeds configured risk), stops-level validation, margin headroom (≤ 50% free margin), exposure caps |
 | **execution-service** | Idempotent MT5 order placement with full retcode handling and bounded retries; broker/local reconciliation sweep every 30 s; dry-run simulation |
 | **notify-service** | Signal-lifecycle tracking (audit log + structlog) and formatted Telegram alerts (🟡 generated · 🟢 filled · 🔴 rejected · 🔵 closed) |
+| **visualization-service** | Interactive Plotly dashboards: candlestick strategy chart with S/D zones + signal markers, HMM regime bands, LightGBM feature importance + P(win) timeline |
 | **api-gateway** | Single public edge: JWT auth (`POST /token`), per-subject sliding-window rate limiting, async reverse proxy with correlation-id propagation |
 
 ### Infrastructure
@@ -165,6 +166,53 @@ curl -s -X POST http://localhost:8000/token \
 TOKEN=... # from response.access_token
 curl -s http://localhost:8000/signals/history?limit=20 -H "Authorization: Bearer $TOKEN"
 ```
+
+---
+
+## Visualisation Dashboard
+
+The **visualization-service** renders interactive Plotly charts (dark theme) from live
+TimescaleDB data. It sits behind the api-gateway — no direct host port is exposed.
+
+### Quick start
+
+```bash
+# 1. Get a JWT token (same as above)
+TOKEN=$(curl -s -X POST http://localhost:8000/token \
+     -H "Content-Type: application/json" \
+     -d '{"username":"vix-admin","password":"<GATEWAY_PASSWORD>"}' \
+     | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+
+# 2. Open the interactive dashboard in your browser
+start http://localhost:8000/viz/dashboard?token=$TOKEN   # Windows
+# open http://localhost:8000/viz/dashboard?token=$TOKEN  # macOS/Linux
+```
+
+The dashboard renders three charts side-by-side:
+
+| Chart | What it shows |
+|---|---|
+| **Strategy Chart** | Candlestick OHLCV with supply/demand zone rectangles and BUY/SELL signal markers at entry prices |
+| **Regime Chart** | Close price with colored background bands for each HMM regime span (grey S0 range, green S1 up-trend, red S2 down-trend) |
+| **ML Explainability** | LightGBM feature importance bars + P(win) probability timeline on a secondary axis |
+
+### API endpoints
+
+All chart endpoints return Plotly JSON figures (`application/json`) suitable for rendering
+with `Plotly.newPlot()` in any frontend:
+
+```
+GET /viz/api/charts/strategy?timeframe=M15&days=7
+GET /viz/api/charts/regime?timeframe=M15&days=7
+GET /viz/api/charts/ml_features?days=30
+```
+
+Query parameters:
+- `timeframe` — bar timeframe to chart (default: `M15`)
+- `days` — lookback window in days (default: `7`, max: `90`; prevents memory overload)
+
+Optional PNG export is available by installing the `kaleido` extra
+(`uv pip install kaleido`) and hitting `/api/charts/strategy/png`.
 
 ---
 
@@ -293,7 +341,7 @@ of every request shares an `X-Correlation-Id`.
 
 ## Testing & CI/CD
 
-Run the test suite locally (134 tests: unit, integration against testcontainers Postgres/Redis,
+Run the test suite locally (148 tests: unit, integration against testcontainers Postgres/Redis,
 lookahead-bias labeling guards, artifact-tamper checks, full-bus end-to-end):
 
 ```bash
@@ -326,7 +374,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR:
 vix75-platform/
 ├── packages/vix_core/        # shared library: config, schemas, indicators, zones,
 │                             # swings, scoring, risk, artifacts, correlation, logging
-├── services/                 # the eight FastAPI microservices (see Architecture)
+├── services/                 # the nine FastAPI microservices (see Architecture)
 ├── infra/
 │   ├── timescale/schema.sql  # hypertables + tables (auto-applied on first boot)
 │   ├── redis/redis.conf
