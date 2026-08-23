@@ -36,6 +36,9 @@ from vix_core.logging import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
+if sys.platform == "win32":  # pragma: no cover - psycopg3 async requirement
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SERVICES_DIR = REPO_ROOT / "services" / "data-service"
 
@@ -135,13 +138,129 @@ async def _run_backfill(symbol: str, days: int, timeframes: list[str], chunk: in
                 timeframe=timeframe,
                 lookback_days=days,
                 chunk_size=chunk,
-                progress=lambda _n: None,
+                progress=lambda _tf, _n: None,
             )
             logger.info("backfilled", timeframe=timeframe, bars=stored)
     finally:
         client.shutdown()
         await db.close()
     return rc
+
+
+def _cmd_features(args: argparse.Namespace) -> int:
+    """Compute per-bar feature snapshots over stored OHLCV history.
+
+    Linear-time: all indicator series are built ONCE via vix_core's
+    vectorized frame builder (identical math to the live feature-service);
+    zones/swings are derived from the full window and attached per row.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "services" / "feature-service"))
+    import numpy as np
+    import numpy.typing as npt
+    import psycopg
+    from app.compute import (  # type: ignore[import-not-found]
+        WARMUP_INDEX,
+        build_frame,
+        latest_pivots,
+    )
+    from psycopg.types.json import Jsonb
+    from vix_core.schemas import Bar
+    from vix_core.zones import ZoneEngine
+
+    settings = get_settings()
+    configure_logging("start-system-features", level=settings.log_level)
+    symbol = args.symbol or settings.symbol
+
+    bars: list[Bar] = []
+    dsn = settings.database_url
+    with psycopg.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT ts, open, high, low, close, tick_volume FROM ohlcv"
+            " WHERE symbol=%s AND timeframe=%s ORDER BY ts ASC",
+            (symbol, args.timeframe),
+        )
+        for r in cur.fetchall():
+            bars.append(
+                Bar(
+                    ts=r[0],
+                    open=float(r[1]),
+                    high=float(r[2]),
+                    low=float(r[3]),
+                    close=float(r[4]),
+                    tick_volume=int(r[5] or 0),
+                )
+            )
+    logger.info("history loaded", timeframe=args.timeframe, bars=len(bars))
+    if len(bars) <= WARMUP_INDEX + 1:
+        logger.error("insufficient history", need=WARMUP_INDEX + 2, have=len(bars))
+        return 1
+
+    frame = build_frame(bars)
+
+    # Zones computed once over the full window (same detector the live
+    # consumer runs); broken zones excluded from every row snapshot.
+    engine = ZoneEngine()
+    active_zones = [
+        z.model_dump(mode="json")
+        for z in engine.build_zones(frame.open, frame.high, frame.low, frame.close, frame.ts)
+        if z.state.value != "broken"
+    ]
+    swing_high, swing_low = latest_pivots(frame.high, frame.low)
+
+    def f(arr: npt.NDArray[np.float64], idx: int) -> float | None:
+        v = float(arr[idx])
+        return v if np.isfinite(v) else None
+
+    insert_sql = (
+        "INSERT INTO features (symbol,timeframe,ts,close,atr,atr_norm,rsi,"
+        "ema50,ema200,bb_upper,bb_mid,bb_lower,stoch_k,stoch_d,realized_vol,"
+        "log_return,swing_high,swing_low,zones) VALUES (%s,%s,%s,%s,%s,%s,%s,"
+        "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+        " ON CONFLICT (symbol,timeframe,ts) DO UPDATE SET close=EXCLUDED.close,"
+        " atr=EXCLUDED.atr, rsi=EXCLUDED.rsi, ema50=EXCLUDED.ema50,"
+        " ema200=EXCLUDED.ema200"
+    )
+
+    payload: list[tuple[object, ...]] = []
+    append = payload.append
+    ts_arr = frame.ts
+    for i in range(WARMUP_INDEX + 1, len(bars)):
+        append(
+            (
+                symbol,
+                args.timeframe,
+                bars[i].ts,
+                f(frame.close, i),
+                f(frame.atr, i),
+                f(frame.atr_norm, i),
+                f(frame.rsi, i),
+                f(frame.ema50, i),
+                f(frame.ema200, i),
+                f(frame.bb_upper, i),
+                f(frame.bb_mid, i),
+                f(frame.bb_lower, i),
+                f(frame.stoch_k, i),
+                f(frame.stoch_d, i),
+                f(frame.realized_vol, i),
+                f(frame.log_return, i),
+                swing_high,
+                swing_low,
+                Jsonb(active_zones),
+            )
+        )
+
+    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+        cur.executemany(insert_sql, payload)
+
+    latest_ts = np.datetime_as_string(ts_arr[-1], unit="s")
+    logger.info(
+        "feature backfill complete",
+        timeframe=args.timeframe,
+        rows_written=len(payload),
+        latest=str(latest_ts),
+        zones=len(active_zones),
+    )
+    return 0
 
 
 def _cmd_backfill(args: argparse.Namespace) -> int:
@@ -158,7 +277,14 @@ def _cmd_backfill(args: argparse.Namespace) -> int:
         logger.info("gateway backfill queued", status=response.status_code)
         return 0 if response.status_code == 202 else 1
 
-    return asyncio.run(_run_backfill(symbol, args.days, args.timeframes, args.chunk_size))
+    try:
+        return asyncio.run(_run_backfill(symbol, args.days, args.timeframes, args.chunk_size))
+    except KeyboardInterrupt:
+        logger.warning("backfill interrupted")
+        return 130
+    except Exception:
+        logger.exception("backfill failed")
+        return 2
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +377,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_common(bf)
     bf.set_defaults(func=_cmd_backfill)
+
+    ft = sub.add_parser("features", help="backfill per-bar feature snapshots from stored OHLCV")
+    ft.add_argument("--symbol", default=None)
+    ft.add_argument("--timeframe", default="M15", choices=["M1", "M5", "M15", "H1", "H4"])
+    add_common(ft)
+    ft.set_defaults(func=_cmd_features)
 
     tr = sub.add_parser("train", help="trigger ML training via the ml-service")
     tr.add_argument("--model", choices=sorted(VALID_MODELS), required=True)

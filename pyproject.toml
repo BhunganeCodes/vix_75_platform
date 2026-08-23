@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "VIX75 microservices trading platform (FastAPI + TimescaleDB + Redis)"
 requires-python = ">=3.12"
 dependencies = [
+    "mt5>=0.0.3.1",
     "tqdm>=4.66,<5",
     "vix-core",
 ]
@@ -11,6 +12,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "black>=26.3.1,<27",
+    # Local MT5 bridge dependency - Windows only; CI (linux) skips it.
+    "MetaTrader5>=5.0.45; sys_platform == 'win32'",
     "mypy>=1.11,<2",
     "pip-audit>=2.7,<3",
     "pyarrow>=23.0.1,<24",

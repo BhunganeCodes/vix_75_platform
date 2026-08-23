@@ -20,7 +20,7 @@ from vix_core.logging import get_logger
 
 from .db import FeatureDatabaseML
 from .hmm import ARTIFACT_PATH as HMM_PATH
-from .hmm import load_regime_model, predict_regime
+from .hmm import load_regime_model
 from .meta_label import (
     ARTIFACT_PATH as META_PATH,
 )
@@ -88,7 +88,14 @@ class InferenceWorker:
                 raise
             except ResponseError as exc:
                 if "NOGROUP" in str(exc):
-                    await asyncio.sleep(5)  # upstream group not created yet
+                    # Group lost (Redis restart): recreate and resume.
+                    try:
+                        await self._redis.xgroup_create(
+                            STREAM_IN, "ml-service", id="$", mkstream=True
+                        )
+                    except ResponseError:
+                        pass
+                    await asyncio.sleep(2)
                     continue
                 logger.exception("worker stream error")
                 await asyncio.sleep(2)
@@ -103,7 +110,13 @@ class InferenceWorker:
 
             for _stream, messages in response or []:
                 for message_id, fields in messages:
-                    await self._handle(message_id, fields)
+                    try:
+                        await self._handle(message_id, fields)
+                    except Exception:
+                        logger.exception(
+                            "unhandled inference error; acking to avoid stall",
+                            message=str(message_id),
+                        )
                     await self._redis.xack(STREAM_IN, "ml-service", message_id)
 
     async def _ensure_group(self) -> None:
@@ -140,15 +153,24 @@ class InferenceWorker:
             if row is None:
                 return
 
+            # Regime from HMM posteriors computed on the CORRECT 3-feature
+            # matrix (NOT the 18-col meta-feature vector - that would crash).
+            probs_arr = cast(np.ndarray, row["probs"])
+            posterior = probs_arr[-1] if len(probs_arr) else np.zeros(3)
+
+            order_map: dict[str, int] = self._regime_bundle["order"]
+            label_by_state = {sid: lbl for lbl, sid in order_map.items()}
+            best_state = int(np.argmax(posterior))
+            regime_label = str(label_by_state.get(best_state, "S0_range"))
+
+            # Meta-label inference uses the full meta-feature vector.
             names, x = build_meta_features(
                 cast("list[str]", meta_bundle["feature_names"]),
                 cast(np.ndarray, row["matrix"]),
                 regime_probs=cast(np.ndarray, row["probs"]),
                 timestamps=cast(np.ndarray, row["ts"]),
             )
-            del names  # layout persisted in artifact; kept for debugging
-
-            regime_label, regime_state, probs = predict_regime(self._regime_bundle, x[-1])
+            del names
             meta = predict_proba(self._meta_bundle, x[-1])
 
             await self._redis.set(
@@ -159,8 +181,12 @@ class InferenceWorker:
                         "timeframe": timeframe,
                         "ts": row["ts_iso"],
                         "regime": regime_label,
-                        "state": regime_state,
-                        "probabilities": probs,
+                        "state": best_state,
+                        "probabilities": [
+                            float(posterior[order_map["S0"]]),
+                            float(posterior[order_map["S1"]]),
+                            float(posterior[order_map["S2"]]),
+                        ],
                         "correlation_id": correlation_id,
                     }
                 ),
@@ -208,10 +234,10 @@ class InferenceWorker:
         )
         # Align lengths conservatively from the tail.
         n = min(len(matrix), len(probs))
-        latest_ts = ts_matrix[-1:]
+        aligned_ts = ts_matrix[-n:]
         return {
-            "ts": latest_ts,
-            "ts_iso": str(latest_ts[0]),
+            "ts": aligned_ts,
+            "ts_iso": str(aligned_ts[-1]),
             "matrix": matrix[-n:],
             "probs": probs[-n:],
         }

@@ -38,6 +38,12 @@ from .meta_label import (
 logger = get_logger(__name__)
 router = APIRouter()
 
+# Only ONE training pipeline may run at a time - concurrent jobs race on
+# the shared artifact files (joblib write + sidecar swap).
+import threading  # noqa: E402
+
+_TRAIN_LOCK = threading.Lock()
+
 
 def get_settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
@@ -59,10 +65,15 @@ async def train(
         raise HTTPException(status_code=422, detail=f"unsupported timeframe {timeframe}")
 
     async def _job() -> None:
+        if not _TRAIN_LOCK.acquire(blocking=False):
+            logger.warning("training already in progress; request skipped")
+            return
         try:
             await asyncio.to_thread(_train_sync, settings, timeframe)
         except Exception:
             logger.exception("training job failed")
+        finally:
+            _TRAIN_LOCK.release()
 
     correlation_id = uuid.uuid4().hex
     background.add_task(_job)

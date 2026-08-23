@@ -893,6 +893,15 @@ wheels = [
 ]
 
 [[package]]
+name = "mt5"
+version = "0.0.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/b0/e8f4281df340cf7d4d3daf9c856c43afa2e5268d03b4b434b63732164eb7/mt5-0.0.3.1.tar.gz", hash = "sha256:618dee585c6e63f8910c26be93af1dab8f6be61148a7f49c3062cd3bd691cfb5", size = 1459, upload-time = "2020-10-13T10:43:51.19Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/56/a24b3d738e3058ff3743f5cd1ea1e3333971ab1b2e90a6dfed61d7a17f48/mt5-0.0.3.1-py3-none-any.whl", hash = "sha256:06561a2f49544233fa4deb14636112b48b8b28e24cf1cc4b008950eeece80618", size = 2638, upload-time = "2020-10-13T10:43:50.35Z" },
+]
+
+[[package]]
 name = "mypy"
 version = "1.20.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2074,6 +2083,7 @@ name = "vix75-platform"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "mt5" },
     { name = "tqdm" },
     { name = "vix-core" },
 ]
@@ -2081,6 +2091,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "black" },
+    { name = "metatrader5", marker = "sys_platform == 'win32'" },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "pyarrow" },
@@ -2097,6 +2108,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "mt5", specifier = ">=0.0.3.1" },
     { name = "tqdm", specifier = ">=4.66,<5" },
     { name = "vix-core", editable = "packages/vix_core" },
 ]
@@ -2104,6 +2116,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = ">=26.3.1,<27" },
+    { name = "metatrader5", marker = "sys_platform == 'win32'", specifier = ">=5.0.45" },
     { name = "mypy", specifier = ">=1.11,<2" },
     { name = "pip-audit", specifier = ">=2.7,<3" },
     { name = "pyarrow", specifier = ">=23.0.1,<24" },
