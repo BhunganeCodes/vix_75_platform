@@ -55,12 +55,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         level=settings.log_level,
         json_output=settings.log_json,
     )
+    try:
+        await app.state.redis.ping()
+        redis_state = "up"
+    except Exception:
+        logger.exception("redis unreachable; rate limiting disabled")
+        redis_state = "down"
     logger.info(
         "gateway ready",
+        redis=redis_state,
         rate_limit_per_minute=settings.rate_limit_per_minute,
         services=sorted({s.rsplit("-", 1)[0] for s in SERVICE_ROUTES if "-" not in s}),
     )
     yield
+    if getattr(app.state, "owns_redis", False):
+        await app.state.redis.aclose()
     logger.info("gateway stopped")
 
 
@@ -72,9 +81,14 @@ def build_app(
 ) -> FastAPI:
     """Factory so tests can inject a MockTransport client + fake Redis."""
     resolved_settings = settings or Settings(service_name="api-gateway")
+    owns_redis = redis_client is None
+    if redis_client is None:
+        redis_client = aioredis.from_url(resolved_settings.redis_url, decode_responses=True)
 
     app = FastAPI(title="vix75 api-gateway", version="0.2.0")
     app.state.settings = resolved_settings
+    app.state.redis = redis_client
+    app.state.owns_redis = owns_redis
 
     _correlation_middleware(app)
 

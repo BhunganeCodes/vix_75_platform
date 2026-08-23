@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
 from vix_core.observability import attach_metrics
@@ -58,9 +58,12 @@ attach_metrics(app, "risk-service")
 
 
 @app.get("/health")
-async def health(request: object) -> dict[str, object]:
-    state = getattr(request, "app", None)
-    consumer = getattr(getattr(state, "state", None), "consumer", None)
+async def health(request: Request) -> dict[str, object]:
+    from typing import cast
+
+    from .consumer import RiskConsumer
+
+    consumer = cast(RiskConsumer, request.app.state.consumer)
     tracker: ExposureTracker | None = getattr(consumer, "_tracker", None)
     return {
         "service": "risk-service",

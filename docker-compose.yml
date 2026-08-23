@@ -35,7 +35,7 @@ services:
       POSTGRES_DB: vix75
     command: postgres -c shared_preload_libraries=timescaledb
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:15432:5432"   # host 5432 often taken by a native Postgres - override here
     volumes:
       - timescale_data:/var/lib/postgresql/data
       - ./infra/timescale/schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
@@ -51,7 +51,7 @@ services:
     container_name: vix-redis
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:16379:6379"   # host 6379 may conflict with a native Redis
     volumes:
       - redis_data:/data
       - ./infra/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -142,6 +142,7 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: ml-service
+        PIP_EXTRA: "hmmlearn lightgbm scikit-learn"
     env_file: .env
     environment:
       DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75

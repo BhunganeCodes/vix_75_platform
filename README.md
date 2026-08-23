@@ -70,7 +70,7 @@ single real lot is traded**.
 |---|---|
 | Python **3.12+** | [uv](https://docs.astral.sh/uv/) recommended for workspace management |
 | Docker & Docker Compose v2 | Local stack + production deployment |
-| MetaTrader 5 Terminal | Runs natively on Windows; acts as the local data/order bridge |
+| MetaTrader 5 Terminal | Runs natively on **Windows**; acts as the local data/order bridge. Backfill also needs the Python package inside this repo's venv: `uv pip install "MetaTrader5>=5.0.45"` |
 | Oracle Cloud account | For the Always-Free ARM production deployment (Ubuntu 22.04 A1.Flex) |
 
 ---
@@ -114,6 +114,11 @@ Install dependencies (creates `.venv` from the uv workspace):
 uv sync --all-packages --dev
 ```
 
+> **Port conflicts?** The dev stack publishes Postgres/Redis on loopback remapped ports
+> (`127.0.0.1:15432 → 5432`, `127.0.0.1:16379 → 6379`) precisely because native installs often
+> occupy the defaults. `.env.example` sets matching `DATABASE_URL` / `REDIS_URL`; adjust both if
+> you change the mappings.
+
 ---
 
 ## Running the System (Local Dev)
@@ -122,29 +127,30 @@ The master CLI orchestrates bootstrap, training and lifecycle:
 
 ```bash
 # 1. Start infrastructure + all services, waiting until DB/Redis/gateway are healthy
-python scripts/start_system.py up
+#    (always invoke scripts through `uv run` so the workspace venv is used)
+uv run python scripts/start_system.py up
 
 # 2. Backfill ~5 years of history (run on the WINDOWS BRIDGE host - needs MT5)
-python scripts/start_system.py backfill --symbol "Volatility 75 Index" --days 1825
+uv run python scripts/start_system.py backfill --symbol "Volatility 75 Index" --days 1825
 
 # 3. Train the regime model and the meta-label model
-python scripts/start_system.py train --model hmm
-python scripts/start_system.py train --model meta_label
+uv run python scripts/start_system.py train --model hmm
+uv run python scripts/start_system.py train --model meta_label
 ```
 
 Useful variants:
 
 ```bash
-python scripts/start_system.py backfill --days 365 --timeframes M15 H1   # smaller bootstrap
-python scripts/start_system.py backfill --via-gateway                    # queue remotely (no local MT5 needed)
-python scripts/start_system.py down                                      # stop everything
-python scripts/start_system.py status                                    # compose state
+uv run python scripts/start_system.py backfill --days 365 --timeframes M15 H1   # smaller bootstrap
+uv run python scripts/start_system.py backfill --via-gateway                    # queue remotely (no local MT5 needed)
+uv run python scripts/start_system.py down                              # stop everything
+uv run python scripts/start_system.py status                             # compose state
 ```
 
-You can also bring the stack up directly:
+You can also bring the stack up directly (Compose **v2** syntax — `docker-compose` legacy binary also works):
 
 ```bash
-docker compose up -d            # add --profile services if you want every skeleton running
+docker compose up -d
 docker compose logs -f data-service
 ```
 
@@ -192,6 +198,32 @@ is always visible via `GET /health` on the execution service and in its startup 
 other switch: sizing still clamps lots **down** (rejecting below broker minimum rather than
 oversizing), stops-level and 50%-free-margin checks remain hard gates, and duplicate order intents
 stay idempotent.
+
+> **Training prerequisite**: `train` needs ≥ 500 complete M15 feature rows (it fails fast with a
+> clear message otherwise). Run a backfill first — the seeded history flows through the
+> feature-service into the training dataset.
+
+### Verifying end-to-end without MT5
+
+Even without a broker connection you can prove the entire pipeline. The stack ships with
+self-healing stream consumers (groups are recreated automatically after Redis restarts), so all
+you need is one feature event:
+
+```bash
+# Seed context: broker snapshot + regime/meta gates (what ml-service/bridge normally write)
+docker exec vix-redis redis-cli SET mt5:account_info   '{"balance":10000,"equity":10000,"margin_free":8000}'
+# ...insert a features row with an active demand zone, then publish:
+
+docker exec vix-redis redis-cli XADD feature.computed '*'   symbol "Volatility 75 Index" timeframe "M15" ts "2026-08-10T10:45:00+00:00" close "100.0"
+
+# Watch the cascade:
+watch -n1 'for s in signal.generated signal.rejected order.request order.filled signal.rejected;   do echo "$s: $(docker exec vix-redis redis-cli XLEN $s)"; done'
+```
+
+Expected cascade within ~15 s: **signal.generated → order.request → order.filled**
+(epoch ticket, `DONE (dry_run)`), a `trades` row as `filled`, notify-service audit rows in
+`audit_log`, and a 🟢 Telegram alert if configured. A missing broker snapshot intentionally yields
+`signal.rejected / account_data_unavailable` — fail-closed by design.
 
 ---
 

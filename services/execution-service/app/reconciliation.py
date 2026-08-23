@@ -46,11 +46,7 @@ class Reconciler:
         self._settings = settings
         self._db = db
         self._redis = redis
-        if mt5 is None:
-            from vix_core.mt5_client import require_mt5
-
-            mt5 = require_mt5()
-        self._mt5 = mt5
+        self._mt5 = mt5  # may be None on hosts without the MT5 package
 
     # ------------------------------------------------------------------
 
@@ -67,6 +63,9 @@ class Reconciler:
 
     async def run_once(self) -> dict[str, int]:
         """One sweep; returns counters (exposed for tests)."""
+        if self._mt5 is None:
+            logger.info("reconciliation skipped: MT5 unavailable on this host")
+            return {"skipped": 1}
         module = self._mt5
         symbol = self._settings.symbol
 

@@ -93,6 +93,9 @@ class InferenceWorker:
                 logger.exception("worker stream error")
                 await asyncio.sleep(2)
                 continue
+                logger.exception("worker stream error")
+                await asyncio.sleep(2)
+                continue
             except Exception:
                 logger.exception("xreadgroup failed; retrying")
                 await asyncio.sleep(2)

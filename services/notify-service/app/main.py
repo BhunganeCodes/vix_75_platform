@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import redis.asyncio as aioredis
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from vix_core.config import Settings
 from vix_core.logging import configure_logging, get_logger
 from vix_core.observability import attach_metrics
@@ -72,12 +72,15 @@ attach_metrics(app, "notify-service")
 
 
 @app.get("/health")
-async def health(request: object) -> dict[str, object]:
-    state = getattr(request, "app", None)
-    consumer = getattr(getattr(state, "state", None), "consumer", None)
+async def health(request: Request) -> dict[str, object]:
+    from typing import cast
+
+    from .consumer import NotifyConsumer
+
+    consumer = cast(NotifyConsumer, request.app.state.consumer)
     return {
         "service": "notify-service",
         "status": "ok",
-        "events_processed": getattr(consumer, "processed", 0),
-        "alerts_sent": getattr(consumer, "alerts_sent", 0),
+        "events_processed": consumer.processed,
+        "alerts_sent": consumer.alerts_sent,
     }

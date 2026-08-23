@@ -95,9 +95,12 @@ class NotifyConsumer:
         except asyncio.CancelledError:
             raise
         except ResponseError as exc:
-            if "NOGROUP" not in str(exc):
-                logger.exception("xreadgroup failed")
-                await asyncio.sleep(2)
+            if "NOGROUP" in str(exc):
+                logger.warning("consumer groups missing; recreating")
+                await self._ensure_groups()
+                return 0
+            logger.exception("xreadgroup failed")
+            await asyncio.sleep(2)
             return 0
         except Exception:
             logger.exception("xreadgroup failed; retrying")

@@ -22,7 +22,7 @@ from typing import Any
 
 from vix_core.config import Settings
 from vix_core.logging import get_logger
-from vix_core.mt5_client import MT5Client
+from vix_core.mt5_client import MT5Client, MT5UnavailableError
 from vix_core.schemas import Direction, OrderRequest, OrderResult
 
 logger = get_logger(__name__)
@@ -70,9 +70,18 @@ class MT5Executor:
         if self.client is None:
             self.client = MT5Client(self.settings)
         if self.mt5 is None:
-            from vix_core.mt5_client import require_mt5
+            # Cloud/dry-run hosts have no MT5 package; resolve lazily so the
+            # service still boots. Dry-run fills fall back to entry price.
+            try:
+                from vix_core.mt5_client import require_mt5
 
-            self.mt5 = require_mt5()
+                self.mt5 = require_mt5()
+            except MT5UnavailableError:
+                self.mt5 = None
+
+    @property
+    def mt5_available(self) -> bool:
+        return self.mt5 is not None
 
     # ------------------------------------------------------------------
     # Request building
@@ -117,11 +126,15 @@ class MT5Executor:
         """Simulate a broker fill WITHOUT touching ``order_send``.
 
         Emits a mock ticket derived from wall-clock time and prices from
-        the live tick feed so downstream consumers (DB rows, Telegram
-        alerts, metrics) behave exactly as they would in production.
+        the live tick feed; on hosts without MT5 the signal entry price is
+        used so the simulation still runs end-to-end.
         """
-        tick = self._tick(order.symbol)
-        price = tick.ask if order.direction is Direction.BUY else tick.bid
+        price: float | None = None
+        if self.mt5_available:
+            tick = self._tick(order.symbol)
+            price = tick.ask if order.direction is Direction.BUY else tick.bid
+        if price is None:
+            price = order.entry  # simulated market: fill at signal entry
         ticket = int(time.time())
         logger.info(
             "dry-run fill simulated",

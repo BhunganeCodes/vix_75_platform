@@ -19,9 +19,20 @@ WORKDIR /app
 COPY packages/vix_core/ /app/packages/vix_core/
 COPY services/${SERVICE_NAME}/ /app/services/${SERVICE_NAME}/
 
-RUN pip install --no-cache-dir /app/packages/vix_core \
+# Shared runtime deps for every service + per-service extras supplied via
+# build args (e.g. ml-service adds its ML stack). vix_core brings numpy,
+# scipy, structlog, pydantic(-settings); MetaTrader5 is intentionally
+# absent (Windows-only, runs on the local bridge, not in containers).
+RUN pip install --no-cache-dir \
+    "/app/packages/vix_core" \
     "fastapi>=0.115,<1" \
-    "uvicorn[standard]>=0.30,<1"
+    "uvicorn[standard]>=0.30,<1" \
+    "redis>=5.0,<6" \
+    "psycopg[binary]>=3.2,<4" \
+    "httpx>=0.27,<0.29" \
+    "PyJWT>=2.9,<3" \
+    "prometheus_client>=0.20,<1" \
+    ${PIP_EXTRA}
 
 RUN useradd --create-home --uid 10001 vix && chown -R vix:vix /app
 USER vix

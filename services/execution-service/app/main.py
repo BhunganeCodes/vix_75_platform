@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception("dependency startup failed")
 
     consumer = ExecutionConsumer(settings, database, redis_client, executor=executor)
-    reconciler = Reconciler(settings, database, redis_client, mt5=executor.mt5)
+    reconciler = Reconciler(settings, database, redis_client)
 
     consumer_task = asyncio.create_task(consumer.run_forever())
     reconcile_task = asyncio.create_task(reconciler.run_forever())

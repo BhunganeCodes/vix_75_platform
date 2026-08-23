@@ -40,7 +40,7 @@ async def health(
     }
 
 
-@router.get("/signals/history")
+@router.get("/history")
 async def signals_history(
     db: Annotated[SignalDatabase, Depends(get_db)],
     limit: Annotated[int, Query(ge=1, le=500)] = 50,

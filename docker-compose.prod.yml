@@ -119,6 +119,7 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: ml-service
+        PIP_EXTRA: "hmmlearn lightgbm scikit-learn"
     <<: *app-base
     environment:
       DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75

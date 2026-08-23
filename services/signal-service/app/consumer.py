@@ -109,9 +109,13 @@ class SignalConsumer:
         except asyncio.CancelledError:
             raise
         except ResponseError as exc:
-            if "NOGROUP" not in str(exc):
-                logger.exception("xreadgroup failed")
-                await asyncio.sleep(2)
+            if "NOGROUP" in str(exc):
+                # Consumer groups do not survive a Redis restart; recreate.
+                logger.warning("consumer group missing; recreating")
+                await self._ensure_group()
+                return 0
+            logger.exception("xreadgroup failed")
+            await asyncio.sleep(2)
             return 0
         except Exception:
             logger.exception("xreadgroup failed; retrying")

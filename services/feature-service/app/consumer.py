@@ -64,6 +64,14 @@ class FeatureConsumer:
                 )
             except asyncio.CancelledError:
                 raise
+            except ResponseError as exc:
+                if "NOGROUP" in str(exc):
+                    logger.warning("consumer group missing; recreating")
+                    await self._ensure_group()
+                    continue
+                logger.exception("xreadgroup failed; retrying")
+                await asyncio.sleep(2)
+                continue
             except Exception:
                 logger.exception("xreadgroup failed; retrying")
                 await asyncio.sleep(2)
