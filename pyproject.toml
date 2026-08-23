@@ -93,6 +93,8 @@ module = [
     "lightgbm.*",
     "scipy.*",
     "sklearn.*",
+    "plotly.*",
+    "pandas.*",
     "testcontainers.*",
     "tqdm.*",
 ]

@@ -226,6 +226,21 @@ services:
     restart: unless-stopped
     networks: [vixnet]
 
+  visualization-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: visualization-service
+    environment:
+      DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [vixnet]
+
   api-gateway:
     build:
       context: .

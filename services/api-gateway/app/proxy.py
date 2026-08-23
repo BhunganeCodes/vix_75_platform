@@ -38,6 +38,8 @@ SERVICE_ROUTES: dict[str, str] = {
     "execution-service": "http://execution-service:8000",
     "notify": "http://notify-service:8000",
     "notify-service": "http://notify-service:8000",
+    "viz": "http://visualization-service:8000",
+    "visualization-service": "http://visualization-service:8000",
 }
 
 HOP_BY_HOP = {

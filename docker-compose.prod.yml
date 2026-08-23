@@ -205,6 +205,22 @@ services:
     mem_limit: 768m
     cpus: "0.5"
 
+  visualization-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.service
+      args:
+        SERVICE_NAME: visualization-service
+    <<: *app-base
+    environment:
+      DATABASE_URL: postgresql://vix:${POSTGRES_PASSWORD}@timescaledb:5432/vix75
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    mem_limit: 768m
+    cpus: "1.0"
+
   api-gateway:
     build:
       context: .
