@@ -232,6 +232,7 @@ services:
       dockerfile: Dockerfile.service
       args:
         SERVICE_NAME: visualization-service
+        PIP_EXTRA: "plotly pandas"
     environment:
       DATABASE_URL: postgresql://vix:vix_dev_password@timescaledb:5432/vix75
       REDIS_URL: redis://redis:6379/0

@@ -53,15 +53,29 @@ def create_token(settings: Settings, subject: str) -> tuple[str, int]:
 
 async def verify_token(
     request: Request,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)] = None,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)
+    ] = None,
 ) -> dict[str, Any]:
-    """FastAPI dependency: 401 unless a valid bearer JWT is presented."""
+    """401 unless a valid JWT is presented via header OR ?token= query param.
+
+    The query-param fallback exists for browser dashboard navigation where
+    setting Authorization headers is impossible on a top-level GET.
+    """
     settings: Settings = request.app.state.settings
-    if credentials is None:
+
+    raw_token: str | None = None
+    if credentials is not None:
+        raw_token = credentials.credentials
+    else:
+        # Fallback for browser navigation (?token=<jwt>)
+        raw_token = request.query_params.get("token")
+
+    if not raw_token:
         raise HTTPException(status_code=401, detail="missing bearer token")
     try:
         payload = pyjwt.decode(
-            credentials.credentials,
+            raw_token,
             settings.jwt_secret.get_secret_value(),
             algorithms=_ALGORITHMS,
             options={"require": ["exp", "sub"]},
